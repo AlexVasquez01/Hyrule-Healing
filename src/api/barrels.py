@@ -29,15 +29,21 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
 # Gets called once a day
 @router.post("/plan")
 def get_wholesale_purchase_plan(wholesale_catalog: list[Barrel]):
-    sql_to_execute = "SELECT num_green_potions FROM global_inventory LIMIT 1"
-    
+    sql_to_execute = "SELECT num_green_potions, gold FROM global_inventory LIMIT 1"
     with db.engine.begin() as connection:
         result = connection.execute(sqlalchemy.text(sql_to_execute))
-        num_green_potions = result.scalar()
+        inventory_info = result.fetchone()
+        num_green_potions, current_gold = inventory_info if inventory_info else (0, 0)
 
     purchase_plan = []
-    if num_green_potions is None or num_green_potions < 10:
-        purchase_plan.append({"sku": "SMALL_GREEN_BARREL", "quantity": 1})
+    for barrel in wholesale_catalog:
+        if barrel["sku"] == "SMALL_GREEN_BARREL" and num_green_potions < 10:
+            if current_gold >= barrel["price"]:
+                purchase_plan.append({"sku": barrel["sku"], "quantity": 1})
+                current_gold -= barrel["price"]  
+                update_gold_sql = "UPDATE global_inventory SET gold = :new_gold"
+                connection.execute(sqlalchemy.text(update_gold_sql), {'new_gold': current_gold})
+            break
 
     return purchase_plan
 

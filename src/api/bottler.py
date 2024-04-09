@@ -34,21 +34,20 @@ def get_bottle_plan():
 
     # Initial logic: bottle all barrels into red potions.
     sql_to_execute = "SELECT num_green_ml FROM global_inventory LIMIT 1"
-
     with db.engine.begin() as connection:
         result = connection.execute(sqlalchemy.text(sql_to_execute))
-        num_green_ml = result.scalar()
+        num_green_ml = result.scalar() or 0  
 
-    num_potions_to_bottle = num_green_ml // 100 if num_green_ml else 0
+    num_potions_to_bottle = num_green_ml // 100
 
-    # Update the database after mixing potions
-    update_inventory_sql = """
-        UPDATE global_inventory 
-        SET num_green_potions = num_green_potions + :num_new_potions,
-            num_green_ml = num_green_ml - (:num_new_potions * 100)
-    """
-    with db.engine.begin() as connection:
-        connection.execute(sqlalchemy.text(update_inventory_sql), {'num_new_potions': num_potions_to_bottle})
+    if num_potions_to_bottle > 0:
+        update_inventory_sql = """
+            UPDATE global_inventory
+            SET num_green_potions = num_green_potions + :num_new_potions,
+                num_green_ml = num_green_ml - (:num_new_potions * 100)
+        """
+        with db.engine.begin() as connection:
+            connection.execute(sqlalchemy.text(update_inventory_sql), {'num_new_potions': num_potions_to_bottle})
 
     return [{"potion_type": [0, 100, 0, 0], "quantity": num_potions_to_bottle}]
 
