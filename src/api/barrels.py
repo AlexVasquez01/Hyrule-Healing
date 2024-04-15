@@ -1,6 +1,6 @@
 import sqlalchemy
 from src import database as db
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from src.api import auth
 
@@ -29,21 +29,33 @@ def post_deliver_barrels(barrels_delivered: list[Barrel], order_id: int):
 # Gets called once a day
 @router.post("/plan")
 def get_wholesale_purchase_plan(wholesale_catalog: list[Barrel]):
-    sql_to_execute = "SELECT num_green_potions, gold FROM global_inventory LIMIT 1"
-    with db.engine.begin() as connection:
-        result = connection.execute(sqlalchemy.text(sql_to_execute))
-        inventory_info = result.fetchone()
-        num_green_potions, current_gold = inventory_info if inventory_info else (0, 0)
+    try:
+        sql_to_execute = "SELECT num_red_potions, num_green_potions, num_blue_potions, gold FROM global_inventory LIMIT 1"
+        with db.engine.begin() as connection:
+            inventory_info = connection.execute(sqlalchemy.text(sql_to_execute)).fetchone()
+            if not inventory_info:
+                raise HTTPException(status_code=404, detail="Inventory information not found")
 
-    purchase_plan = []
-    for barrel in wholesale_catalog:
-        if barrel["sku"] == "SMALL_GREEN_BARREL" and num_green_potions < 10:
-            if current_gold >= barrel["price"]:
-                purchase_plan.append({"sku": barrel["sku"], "quantity": 1})
-                current_gold -= barrel["price"]  
-                update_gold_sql = "UPDATE global_inventory SET gold = :new_gold"
-                connection.execute(sqlalchemy.text(update_gold_sql), {'new_gold': current_gold})
-            break
+            num_red_potions, num_green_potions, num_blue_potions, current_gold = inventory_info
 
-    return purchase_plan
+        purchase_plan = []
+        for barrel in wholesale_catalog:
+            if current_gold >= barrel.price:
+                needed = False
+                if "RED" in barrel.sku and num_red_potions < 10:
+                    needed = True
+                elif "GREEN" in barrel.sku and num_green_potions < 10:
+                    needed = True
+                elif "BLUE" in barrel.sku and num_blue_potions < 10:
+                    needed = True
+
+                if needed:
+                    purchase_plan.append({"sku": barrel.sku, "quantity": 1})
+                    current_gold -= barrel.price
+
+                    update_gold_sql = "UPDATE global_inventory SET gold = :new_gold"
+                    connection.execute(sqlalchemy.text(update_gold_sql), {'new_gold': current_gold})
+        return purchase_plan
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
